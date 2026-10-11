@@ -18,7 +18,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: In Branch deps-cache ablegen
         run: |
-          mkdir /tmp/cache && tar -I 'zstd -19 -T0' -cf - node_modules package-lock.json | split -b 40m - /tmp/cache/node_modules.tar.zst.part-
+          mkdir /tmp/cache && tar -czf - node_modules package-lock.json | split -b 40m - /tmp/cache/node_modules.tar.gz.part-
           cd /tmp/cache
           git init -q -b deps-cache
           git config user.name "github-actions" && git config user.email "actions@github.com"
