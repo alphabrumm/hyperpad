@@ -1,0 +1,26 @@
+name: HyperPad Abhängigkeiten paketieren
+# Packt node_modules in den Branch "deps-cache", damit Entwicklungsumgebungen
+# ohne npm-Zugang (z. B. Claude) bauen und testen können.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [package.json, .github/workflows/deps.yml]
+permissions:
+  contents: write
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: In Branch deps-cache ablegen
+        run: |
+          mkdir /tmp/cache && tar -I 'zstd -19 -T0' -cf - node_modules package-lock.json | split -b 40m - /tmp/cache/node_modules.tar.zst.part-
+          cd /tmp/cache
+          git init -q -b deps-cache
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          git add . && git commit -qm "node_modules für ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" deps-cache
