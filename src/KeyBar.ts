@@ -93,11 +93,29 @@ export class KeyBar {
         // Leiste über der Bildschirmtastatur halten
         const vv = window.visualViewport;
         if (vv) {
+            /*
+             * iOS verschiebt bei offener Bildschirmtastatur den sichtbaren Bereich schon beim
+             * Antippen ein Stück (Cursor sichtbar halten). Würden wir darauf sofort mit neuem Layout
+             * reagieren, änderte sich die Seite zwischen den beiden Tipps eines Doppeltipps – Safari
+             * verliert dann den Anker der Wortauswahl und markiert alles bis zum Textanfang.
+             * Deshalb: nur echte Änderungen schreiben, Tastatur auf/zu sofort, kleine Verschiebungen
+             * erst, wenn gerade nicht getippt wird.
+             */
+            let lastOffset = -1, lastOpen: boolean | null = null, lastTouch = 0, timer: any;
             const update = () => {
-                const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+                clearTimeout(timer);
+                const offset = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+                const open = offset > 80;
+                if (open === lastOpen && Math.abs(offset - lastOffset) < 2) return;
+                const quiet = Date.now() - lastTouch;
+                if (open === lastOpen && quiet < 700) { timer = setTimeout(update, 700 - quiet); return; }
+                lastOffset = offset; lastOpen = open;
                 document.documentElement.style.setProperty("--keyboard-offset", offset + "px");
-                document.documentElement.classList.toggle("keyboard-open", offset > 80);
+                document.documentElement.classList.toggle("keyboard-open", open);
             };
+            const touched = () => { lastTouch = Date.now(); };
+            document.addEventListener("touchstart", touched, { capture: true, passive: true });
+            document.addEventListener("touchend", touched, { capture: true, passive: true });
             vv.addEventListener("resize", update);
             vv.addEventListener("scroll", update);
             update();
