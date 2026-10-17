@@ -32,55 +32,89 @@ import { htmlLinter, cssLinter } from "./lint.js";
  * schnellen Fingertipps an, ersetzen wir sie durch das angetippte Wort. Echte Auswahlen
  * (Griffe ziehen, „Alles auswählen“) sind davon nicht betroffen.
  */
+/** Diagnose-Ausgabe (nur aktiv mit ?debug) */
+const dbg = (msg: string) => { (window as any).__jpadDbg?.(msg); };
+
 function iosDoubleTapFix(): Extension {
-    const taps: number[] = [];
-    // Wort unter dem Finger beim zweiten Tipp eines Doppeltipps
-    let expected: { from: number, to: number, time: number } | null = null;
+    /*
+     * Hintergrund (per Diagnose auf dem iPad im Querformat ermittelt): Safari zeigt die Seite dort
+     * verkleinert an (z. B. 85 %) und setzt den Cursor beim Antippen dann oft in eine ganz andere
+     * Zeile (meist ans Textende). Ein Doppeltipp erweitert die Auswahl anschließend von dort bis zum
+     * Wort; den zweiten Tipp meldet Safari dabei gar nicht. CodeMirror selbst rechnet die
+     * Fingerposition richtig um – daran richten wir Cursor und Wortauswahl aus.
+     */
+    let start: { x: number, y: number } | null = null;
+    let moved = false;
+    let lastTap: { time: number, pos: number, word: { from: number, to: number } | null } | null = null;
+
+    const onTapEnd = (e: TouchEvent, view: EditorView): boolean => {
+        if (e.touches.length != 0 || e.changedTouches.length != 1 || moved) { lastTap = null; return false; }
+        const t = e.changedTouches[0];
+        const pos = view.posAtCoords({ x: t.clientX, y: t.clientY });
+        if (pos == null) { lastTap = null; return false; }
+        const word = view.state.wordAt(pos);
+        lastTap = { time: Date.now(), pos, word: word ? { from: word.from, to: word.to } : null };
+        dbg(`Tipp bei pos ${pos}${word ? ` (Wort ${word.from}-${word.to} „${view.state.sliceDoc(word.from, word.to)}“)` : ""}`);
+        // Ragt die sichtbare Auswahl kurz danach aus dem Editor heraus, auf das Wort zurücksetzen.
+        const tap = lastTap;
+        const repair = () => {
+            if (lastTap != tap || !tap.word) return;
+            const ds = document.getSelection();
+            if (!ds || ds.rangeCount == 0 || !view.hasFocus || ds.isCollapsed) return;
+            const inside = view.contentDOM.contains(ds.anchorNode) && view.contentDOM.contains(ds.focusNode);
+            if (inside) return;
+            const w = tap.word;
+            const a = view.domAtPos(w.from), b = view.domAtPos(w.to);
+            dbg("sichtbare Auswahl lag außerhalb → auf Wort gesetzt");
+            ds.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
+            const sel = view.state.selection.main;
+            if (sel.from != w.from || sel.to != w.to) view.dispatch({ selection: EditorSelection.range(w.from, w.to), userEvent: "select.pointer" });
+        };
+        setTimeout(repair, 400);
+        setTimeout(repair, 900);
+        return false;
+    };
+
     return [
         EditorView.domEventHandlers({
-            touchend: (e, view) => {
-                if (e.touches.length != 0 || e.changedTouches.length != 1) return false;
-                const now = Date.now();
-                taps.push(now);
-                if (taps.length > 2) taps.shift();
-                expected = null;
-                if (taps.length == 2 && taps[1] - taps[0] < 600) {
-                    const t = e.changedTouches[0];
-                    const pos = view.posAtCoords({ x: t.clientX, y: t.clientY });
-                    const word = pos == null ? null : view.state.wordAt(pos);
-                    if (word) {
-                        expected = { from: word.from, to: word.to, time: now };
-                        // Ragt die sichtbare Auswahl kurz danach aus dem Editor heraus (Anfang vor dem
-                        // Editor auf der Seite), sichtbare Auswahl auf das Wort zurücksetzen.
-                        const w = expected;
-                        const repair = () => {
-                            const ds = document.getSelection();
-                            if (!ds || ds.rangeCount == 0 || !view.hasFocus) return;
-                            const inside = view.contentDOM.contains(ds.anchorNode) && view.contentDOM.contains(ds.focusNode);
-                            if (inside) return;
-                            const sel = view.state.selection.main;
-                            if (sel.to < w.from || sel.from > w.to) return;
-                            const a = view.domAtPos(w.from), b = view.domAtPos(w.to);
-                            ds.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
-                            if (sel.from != w.from || sel.to != w.to) view.dispatch({ selection: EditorSelection.range(w.from, w.to), userEvent: "select.pointer" });
-                        };
-                        setTimeout(repair, 350);
-                        setTimeout(repair, 800);
-                    }
-                }
+            touchstart: (e) => {
+                const t = e.touches[0];
+                start = t ? { x: t.clientX, y: t.clientY } : null;
+                moved = e.touches.length != 1;
                 return false;
-            }
+            },
+            touchmove: (e) => {
+                const t = e.touches[0];
+                if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) moved = true;
+                return false;
+            },
+            // iOS meldet einen Tipp teils als touchcancel
+            touchend: onTapEnd,
+            touchcancel: onTapEnd
         }),
         EditorState.transactionFilter.of(tr => {
-            if (!expected || !tr.selection || tr.docChanged || !tr.isUserEvent("select")) return tr;
-            if (Date.now() - expected.time > 900) { expected = null; return tr; }
-            const sel = tr.selection.main;
-            if (tr.selection.ranges.length != 1 || sel.empty) return tr;
-            if (sel.from == expected.from && sel.to == expected.to) return tr;
+            if (!lastTap || !tr.selection || tr.docChanged || !tr.isUserEvent("select")) return tr;
+            const age = Date.now() - lastTap.time;
+            if (age > 1000) { lastTap = null; return tr; }
+            if (tr.selection.ranges.length != 1) return tr;
+            const sel = tr.selection.main, doc = tr.newDoc;
+            if (sel.empty) {
+                // Cursor in einer anderen Zeile als der Finger? Dann an die getippte Stelle.
+                if (age > 500 || lastTap.pos > doc.length) return tr;
+                if (doc.lineAt(sel.head).number == doc.lineAt(lastTap.pos).number) return tr;
+                dbg(`Cursor ${sel.head} → getippte Stelle ${lastTap.pos} korrigiert`);
+                return [tr, { selection: EditorSelection.cursor(lastTap.pos), userEvent: "select.pointer", sequential: true }];
+            }
+            const w = lastTap.word;
+            if (!w || w.to > doc.length) return tr;
+            if (sel.from == w.from && sel.to == w.to) return tr;
+            // Dreifachtipp (ganze Zeile) zulassen
+            const line = doc.lineAt(w.from);
+            if (sel.from == line.from && (sel.to == line.to || sel.to == line.to + 1)) return tr;
             // Nur eingreifen, wenn die Auswahl bis an das angetippte Wort reicht oder es enthält
-            // (Safari setzt den Anfang dann an den Text- bzw. Seitenanfang).
-            if (sel.to < expected.from || sel.from > expected.to) return tr;
-            return [tr, { selection: EditorSelection.range(expected.from, expected.to), userEvent: "select.pointer", sequential: true }];
+            if (sel.to < w.from || sel.from > w.to) return tr;
+            dbg(`Auswahl ${sel.from}-${sel.to} → Wort ${w.from}-${w.to} ersetzt`);
+            return [tr, { selection: EditorSelection.range(w.from, w.to), userEvent: "select.pointer", sequential: true }];
         })
     ];
 }
