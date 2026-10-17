@@ -27,6 +27,37 @@ import { htmlLinter, cssLinter } from "./lint.js";
  */
 
 /**
+ * iPhone/iPad mit Bildschirmtastatur: Ein Doppeltipp auf ein Wort liefert von Safari manchmal
+ * eine Auswahl vom Textanfang (Position 0) bis zum Wort. Kommt so eine Auswahl direkt nach zwei
+ * schnellen Fingertipps an, ersetzen wir sie durch das angetippte Wort. Echte Auswahlen
+ * (Griffe ziehen, „Alles auswählen“) sind davon nicht betroffen.
+ */
+function iosDoubleTapFix(): Extension {
+    const taps: number[] = [];
+    return [
+        EditorView.domEventHandlers({
+            touchend: (e) => {
+                if (e.touches.length == 0 && e.changedTouches.length == 1) {
+                    taps.push(Date.now());
+                    if (taps.length > 2) taps.shift();
+                }
+                return false;
+            }
+        }),
+        EditorState.transactionFilter.of(tr => {
+            if (!tr.selection || tr.docChanged || !tr.isUserEvent("select")) return tr;
+            const now = Date.now();
+            if (taps.length < 2 || now - taps[1] > 900 || taps[1] - taps[0] > 600) return tr;
+            const sel = tr.selection.main, doc = tr.newDoc;
+            if (tr.selection.ranges.length != 1 || sel.empty || sel.from != 0 || sel.to >= doc.length) return tr;
+            const word = tr.state.wordAt(sel.to) || (sel.to > 0 ? tr.state.wordAt(sel.to - 1) : null);
+            if (!word || word.from == 0) return tr;
+            return [tr, { selection: EditorSelection.range(word.from, word.to), userEvent: "select.pointer", sequential: true }];
+        })
+    ];
+}
+
+/**
  * Hervorhebung der Cursorzeile als eigene Ebene hinter dem Text.
  *
  * CodeMirrors highlightActiveLine() setzt die Klasse „cm-activeLine“ direkt an den Zeilen im
@@ -252,6 +283,7 @@ export class HtmlEditor {
             closeBrackets(),
             autocompletion({ override: [smartCompletion], activateOnTyping: true, icons: false, maxRenderedOptions: 60 }),
             activeLineLayer,
+            iosDoubleTapFix(),
             highlightSelectionMatches(),
             lintGutter(),
             EditorView.lineWrapping,
