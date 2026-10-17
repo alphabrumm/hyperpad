@@ -56,34 +56,56 @@ export class KeyBar {
         root.appendChild(this.el);
 
         // Fokus im Editor behalten, sonst schließt sich die Tastatur
-        this.el.addEventListener("pointerdown", e => {
+        // (wie qPad) auch „mousedown“ – das reicht Safari nach dem Fingertipp nach und verschiebt sonst den Fokus
+        for (const ev of ["pointerdown", "mousedown"]) this.el.addEventListener(ev, e => {
             if ((<HTMLElement>e.target).closest("button")) e.preventDefault();
         });
 
         /*
-         * iOS Safari nimmt dem Editor beim Tippen auf einen Knopf trotzdem den Fokus, wenn der
-         * Knopf nicht in einem scrollbaren Bereich liegt. Für die fest stehenden Knöpfe behandeln
-         * wir die Berührung deshalb selbst (wie in JPad).
+         * iOS Safari nimmt dem Editor beim Tippen auf einen Knopf der Leiste trotz preventDefault
+         * bei pointerdown oft den Fokus – dann klappt die Bildschirmtastatur zu. Ursache sind die
+         * Maus-Ereignisse, die Safari nach dem Fingertipp nachreicht. Deshalb behandeln wir jede
+         * Berührung selbst: Ein Tipp ohne Wischen wird bei touchend ausgeführt und mit
+         * preventDefault abgeschlossen (keine nachgereichten Maus-Ereignisse, kein Fokuswechsel).
+         * Knöpfe außerhalb eines scrollbaren Bereichs fangen schon touchstart ab; in der
+         * scrollbaren Zeichenleiste bleibt Wischen zum Scrollen erhalten.
          */
-        let touched: HTMLElement | null = null;
-        const narrow = matchMedia("(max-width: 600px)");
-        const handleSelf = (b: HTMLElement) => !!b.closest(".is-left") || !narrow.matches;
-        this.el.querySelectorAll<HTMLElement>(".hp-keybar-fixed button").forEach(b => {
-            b.addEventListener("touchstart", e => {
-                if (!handleSelf(b)) return;
-                e.preventDefault();
-                touched = b;
-                b.classList.add("is-pressed");
-            }, { passive: false });
-            b.addEventListener("touchend", e => {
-                if (touched != b) return;
-                e.preventDefault();
-                b.classList.remove("is-pressed");
-                this.activate(b);
-                touched = null;
-            }, { passive: false });
-            b.addEventListener("touchcancel", () => { b.classList.remove("is-pressed"); touched = null; });
-        });
+        const inScroller = (b: HTMLElement) => {
+            for (let p = b.parentElement; p && p != this.el.parentElement; p = p.parentElement) {
+                const ox = getComputedStyle(p).overflowX;
+                if ((ox == "auto" || ox == "scroll") && p.scrollWidth > p.clientWidth + 1) return true;
+            }
+            return false;
+        };
+        let tap: { b: HTMLElement, x: number, y: number, moved: boolean, hadFocus: boolean } | null = null;
+        this.el.addEventListener("touchstart", e => {
+            const b = (<HTMLElement>e.target).closest<HTMLElement>("button");
+            if (!b || e.touches.length > 1) { tap?.b.classList.remove("is-pressed"); tap = null; return; }
+            if (!inScroller(b)) e.preventDefault();
+            const t = e.touches[0];
+            tap = { b, x: t.clientX, y: t.clientY, moved: false, hadFocus: this.editor.view.hasFocus };
+            b.classList.add("is-pressed");
+        }, { passive: false });
+        this.el.addEventListener("touchmove", e => {
+            if (!tap || tap.moved) return;
+            const t = e.touches[0];
+            if (Math.abs(t.clientX - tap.x) > 10 || Math.abs(t.clientY - tap.y) > 10) {
+                tap.moved = true;
+                tap.b.classList.remove("is-pressed");
+            }
+        }, { passive: true });
+        this.el.addEventListener("touchend", e => {
+            const t = tap;
+            tap = null;
+            if (!t) return;
+            t.b.classList.remove("is-pressed");
+            if (t.moved) return;
+            e.preventDefault();
+            t.b.click();
+            // Falls Safari den Fokus doch genommen hat: zurückgeben, solange der Finger-Gestus noch gilt
+            if (t.hadFocus && !this.editor.view.hasFocus && t.b.dataset.action != "hide") this.editor.view.focus();
+        }, { passive: false });
+        this.el.addEventListener("touchcancel", () => { tap?.b.classList.remove("is-pressed"); tap = null; });
 
         this.el.addEventListener("click", e => {
             const b = (<HTMLElement>e.target).closest<HTMLElement>("button");
