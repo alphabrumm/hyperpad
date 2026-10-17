@@ -1,7 +1,6 @@
 import { EditorState, Extension, Compartment, EditorSelection } from "@codemirror/state";
 import {
-    EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
-    highlightSpecialChars, dropCursor
+    EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, dropCursor, layer, RectangleMarker
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth, toggleComment, indentMore } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
@@ -26,6 +25,33 @@ import { htmlLinter, cssLinter } from "./lint.js";
  * iPad und Handy die systemeigene Textauswahl (Griffe, Lupe), Diktat und Hardware-Tastaturen.
  * Jede Datei hat ihren eigenen EditorState (eigene Rückgängig-Historie).
  */
+
+/**
+ * Hervorhebung der Cursorzeile als eigene Ebene hinter dem Text.
+ *
+ * CodeMirrors highlightActiveLine() setzt die Klasse „cm-activeLine“ direkt an den Zeilen im
+ * bearbeitbaren Bereich. Auf iPhone/iPad passiert das beim ersten Tipp eines Doppeltipps – Safari
+ * verliert dadurch den Ankerpunkt der Wortauswahl und markiert alles vom Textanfang bis zum Wort
+ * (außer in der Zeile, in der der Cursor schon stand). Diese Ebene liegt außerhalb des
+ * contenteditable-Elements und verändert die Zeilen nicht.
+ */
+const activeLineLayer = layer({
+    above: false,
+    class: "pad-activeline-layer",
+    update: (update) => update.selectionSet || update.docChanged || update.viewportChanged || update.geometryChanged || update.focusChanged,
+    markers: (view) => {
+        const sel = view.state.selection.main;
+        if (!sel.empty) return [];
+        const block = view.lineBlockAt(sel.head);
+        const scroller = view.scrollDOM.getBoundingClientRect();
+        const content = view.contentDOM.getBoundingClientRect();
+        const baseLeft = scroller.left - view.scrollDOM.scrollLeft * view.scaleX;
+        const baseTop = scroller.top - view.scrollDOM.scrollTop * view.scaleY;
+        const top = (view.documentTop + block.top * view.scaleY - baseTop) / view.scaleY;
+        const left = (content.left - baseLeft) / view.scaleX;
+        return [new RectangleMarker("pad-activeline", left, top, content.width / view.scaleX, block.height)];
+    }
+});
 
 export const hyperHighlight = HighlightStyle.define([
     // HTML
@@ -225,7 +251,7 @@ export class HtmlEditor {
             bracketMatching(),
             closeBrackets(),
             autocompletion({ override: [smartCompletion], activateOnTyping: true, icons: false, maxRenderedOptions: 60 }),
-            highlightActiveLine(),
+            activeLineLayer,
             highlightSelectionMatches(),
             lintGutter(),
             EditorView.lineWrapping,

@@ -355,7 +355,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 }
 
 .hp-editor .cm-lineNumbers .cm-gutterElement { padding: 0 6px 0 10px; min-width: 34px; }
-.hp-editor .cm-activeLine { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.hp-editor .pad-activeline { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .hp-editor .cm-activeLineGutter { background: transparent; color: var(--ink); font-weight: 600; }
 .hp-editor .cm-cursor { border-left: 2px solid var(--accent); }
 .hp-editor .cm-selectionBackground, .hp-editor .cm-content ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent) !important; }
