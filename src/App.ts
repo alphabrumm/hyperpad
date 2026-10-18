@@ -655,7 +655,7 @@ export class App {
         const page = this.file(this.previewPage);
         if (!page) return;
         const doc = buildDocument(page.name, this.files, { standalone: true });
-        const url = URL.createObjectURL(new Blob([doc], { type: "text/html" }));
+        const url = URL.createObjectURL(new Blob([doc], { type: "text/html;charset=utf-8" }));
         const w = window.open(url, "_blank");
         if (!w) location.href = url;
         setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -896,7 +896,7 @@ export class App {
             const blob = await (await fetch(f.text)).blob();
             file = new File([blob], f.name, { type: blob.type });
         } else {
-            const type = { html: "text/html", css: "text/css", js: "text/javascript" }[<string>kindOf(f.name)] || "text/plain";
+            const type = { html: "text/html;charset=utf-8", css: "text/css;charset=utf-8", js: "text/javascript;charset=utf-8" }[<string>kindOf(f.name)] || "text/plain";
             file = new File([f.text], f.name, { type });
         }
         if (await this.saveFile(file)) this.toast(`„${f.name}“ gesichert.`, "check");

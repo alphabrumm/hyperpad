@@ -32,10 +32,8 @@ function lsSet(key: string, value: string) {
 }
 
 export function pageTemplate(title: string, body: string = `  <h1>${title}</h1>\n  <p></p>\n`): string {
-    return `<!DOCTYPE html>
-<html lang="de">
+    return `<html>
 <head>
-  <meta charset="utf-8">
   <title>${title}</title>
 </head>
 <body>
