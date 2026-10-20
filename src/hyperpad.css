@@ -694,7 +694,9 @@ html.keyboard-open.editor-focused .hp-bottomnav { display: none; }
     margin-top: 12px;
 }
 
+.hp-stepper { display: flex; align-items: center; gap: 8px; }
 
+.hp-stepper button {
     width: 48px;
     height: 40px;
     border-radius: var(--radius-s);
@@ -702,8 +704,7 @@ html.keyboard-open.editor-focused .hp-bottomnav { display: none; }
     font-weight: 700;
 }
 
-
-.hp-speed button { font-size: 14px; padding: 0 4px; }
+.hp-stepper span { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
 
 .hp-about { font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }
 .hp-about a { color: var(--accent); }
@@ -1287,3 +1288,32 @@ html.phone .hp-keybar-fixed.is-right { background: var(--surface-2); }
 .hp-color-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .hp-color-text { min-width: 0; }
 .hp-color-hex { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Dialog mit mehreren Feldern (Projekt als zip sichern) ---------- */
+
+.hp-form-grid {
+    display: grid;
+    grid-template-columns: minmax(70px, 0.6fr) 1fr 1fr;
+    gap: 12px 10px;
+}
+
+.hp-form-grid .hp-field.is-wide { grid-column: 1 / -1; }
+.hp-form-grid .hp-field input { min-width: 0; width: 100%; }
+
+@media (max-width: 520px) {
+    .hp-form-grid { grid-template-columns: 1fr 1fr; }
+    .hp-form-grid .hp-field:first-child { grid-column: 1 / -1; }
+}
+
+.hp-form-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+}
+
+.hp-form-preview-label { font-size: 13px; color: var(--ink-2); }
+.hp-form-preview code { font-family: var(--font-code); font-size: 14px; word-break: break-all; }

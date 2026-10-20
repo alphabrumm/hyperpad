@@ -194,6 +194,8 @@ export class App {
                     <button data-ref="newProjectBtn">${icon("plus")}<span>Neues Projekt</span></button>
                     <button data-ref="openFileBtn">${icon("open")}<span>Projekt aus Datei öffnen</span></button>
                     <button data-ref="saveFileBtn">${icon("save")}<span>Projekt als Datei sichern</span></button>
+                    <button data-ref="saveZipBtn">${icon("zip")}<span>Projekt als zip sichern</span></button>
+                    <button data-ref="saveTabBtn">${icon("fileSave")}<span>Offenen Tab als Datei sichern</span></button>
                 </div>
                 <ul class="hp-projectlist" data-ref="projectList"></ul>
 
@@ -265,6 +267,8 @@ export class App {
             if (list && list.length) this.addFilesFromDevice(Array.from(list));
         });
         this.el.saveFileBtn.addEventListener("click", () => { this.closeDrawer(); this.exportProject(); });
+        this.el.saveZipBtn.addEventListener("click", () => { this.closeDrawer(); this.exportZip(); });
+        this.el.saveTabBtn.addEventListener("click", () => { this.closeDrawer(); this.exportOpenTab(); });
         this.el.colorsMenuBtn.addEventListener("click", () => { this.closeDrawer(); this.openColors(); });
 
         this.el.themeSwitch.querySelectorAll<HTMLElement>("[data-theme-choice]").forEach(b =>
@@ -890,16 +894,104 @@ export class App {
         this.toast(`„${filename}“ gesichert.`, "check");
     }
 
-    private async downloadSingle(f: ProjectFile) {
+    // ----- Projekt als ZIP: KLASSE_NACHNAME_VORNAME_PROJEKTNAME_DATUM_UHRZEIT.zip -----
+
+    private getStudent(): { klasse: string, nachname: string, vorname: string } {
+        try {
+            const v = JSON.parse(localStorage.getItem("hyperpad.student") || "{}");
+            return { klasse: v.klasse || "", nachname: v.nachname || "", vorname: v.vorname || "" };
+        } catch (e) { return { klasse: "", nachname: "", vorname: "" }; }
+    }
+
+    private setStudent(v: { klasse: string, nachname: string, vorname: string }) {
+        try { localStorage.setItem("hyperpad.student", JSON.stringify(v)); } catch (e) { }
+    }
+
+    /** Teil eines Datei-/Ordnernamens: ohne verbotene Zeichen, Leerzeichen werden zu Bindestrichen */
+    private namePart(s: string): string {
+        return s.trim().replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "-");
+    }
+
+    private zipBaseName(v: Record<string, string>): string {
+        return [v.klasse, v.nachname, v.vorname, v.projekt].map(x => this.namePart(x || "")).filter(x => x).join("_");
+    }
+
+    private stamp(d: Date): string {
+        const p = (n: number) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}`;
+    }
+
+    async exportZip() {
+        this.flush();
+        const student = this.getStudent();
+        const v = await this.dialogs.form({
+            title: "Projekt als zip sichern",
+            text: "Klasse und Name helfen deiner Lehrkraft, die Abgabe zuzuordnen. Du kannst sie auch leer lassen.",
+            fields: [
+                { id: "klasse", label: "Klasse", value: student.klasse, placeholder: "z. B. 8b" },
+                { id: "nachname", label: "Nachname", value: student.nachname, placeholder: "z. B. Müller", capitalize: true },
+                { id: "vorname", label: "Vorname", value: student.vorname, placeholder: "z. B. Anna", capitalize: true },
+                { id: "projekt", label: "Projektname", value: this.project.name, wide: true },
+            ],
+            confirm: "Sichern",
+            previewLabel: "Dateiname",
+            preview: (x) => this.zipBaseName(x) + "_" + this.stamp(new Date()) + ".zip",
+            validate: (x) => this.namePart(x.projekt || "") ? null : "Bitte gib einen Projektnamen ein.",
+        });
+        if (!v) return;
+        this.setStudent({ klasse: v.klasse.trim(), nachname: v.nachname.trim(), vorname: v.vorname.trim() });
+
+        const now = new Date();
+        const folder = this.zipBaseName(v);
+        const filename = `${folder}_${this.stamp(now)}.zip`;
+        const enc = new TextEncoder();
+        const { createZip, dataUrlToBytes } = await import("./Zip.js");
+        const entries: import("./Zip.js").ZipEntry[] = [{ path: folder + "/", data: new Uint8Array(0) }];
+        for (const f of this.files) {
+            const data = kindOf(f.name) == "image" && f.text.startsWith("data:") ? dataUrlToBytes(f.text) : enc.encode(f.text);
+            entries.push({ path: `${folder}/${f.name}`, data });
+        }
+        const zip = createZip(entries, now);
+        const ok = await this.saveFile(new File([zip], filename, { type: "application/zip" }));
+        if (ok) this.toast(`„${filename}“ gesichert.`, "check");
+    }
+
+    // ----- Offenen Tab als einzelne Datei -----
+
+    async exportOpenTab() {
+        const f = this.file(this.active);
+        if (!f) return;
+        this.flush();
+        const ext = extOf(f.name);
+        const name = await this.dialogs.prompt({
+            title: "Offenen Tab als Datei sichern",
+            label: "Dateiname",
+            value: f.name,
+            confirm: "Sichern",
+            validate: (x) => {
+                const n = x.trim();
+                if (!n) return "Bitte gib einen Dateinamen ein.";
+                if (/[\\/:*?"<>|]/.test(n)) return "Diese Zeichen sind in Dateinamen nicht erlaubt: \\ / : * ? \" < > |";
+                return null;
+            }
+        });
+        if (!name) return;
+        let n = name.trim();
+        // Fehlt die Endung, die des Tabs anhängen (sonst lässt sich die Datei nicht öffnen)
+        if (!extOf(n) && ext) n += "." + ext;
+        this.downloadSingle(f, n);
+    }
+
+    private async downloadSingle(f: ProjectFile, saveAs: string = f.name) {
         let file: File;
         if (kindOf(f.name) == "image") {
             const blob = await (await fetch(f.text)).blob();
-            file = new File([blob], f.name, { type: blob.type });
+            file = new File([blob], saveAs, { type: blob.type });
         } else {
             const type = { html: "text/html;charset=utf-8", css: "text/css;charset=utf-8", js: "text/javascript;charset=utf-8" }[<string>kindOf(f.name)] || "text/plain";
-            file = new File([f.text], f.name, { type });
+            file = new File([f.text], saveAs, { type });
         }
-        if (await this.saveFile(file)) this.toast(`„${f.name}“ gesichert.`, "check");
+        if (await this.saveFile(file)) this.toast(`„${saveAs}“ gesichert.`, "check");
     }
 
     async importProject(file: File) {

@@ -55,6 +55,8 @@ const paths: Record<string, string> = {
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
     css: '<path d="M5 4l1.5 15L12 21l5.5-2L19 4z"/><path d="M15 8H9l.4 4h5.2l-.4 4-2.2.8-2.2-.8-.1-1.5"/>',
     js: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M11 8v7a2 2 0 0 1-4 0M17 9.5a1.8 1.8 0 0 0-3 .5c0 2.5 4 1.5 4 4a2 2 0 0 1-4 .5"/>',
+    zip: '<path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/><path d="M10 3v2M10 7v2M10 11v2"/><rect x="8.5" y="14" width="3" height="4" rx="1"/>',
+    fileSave: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6"/><path d="M9.5 14.5L12 17l2.5-2.5"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
 };
 

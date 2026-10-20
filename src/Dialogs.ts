@@ -11,7 +11,20 @@ type PromptOptions = {
     capitalize?: boolean;
 };
 
-type ConfirmOptions = { title: string, text: string, confirm: string, danger?: boolean };
+export type FormField = { id: string, label: string, value?: string, placeholder?: string, capitalize?: boolean, wide?: boolean };
+
+type FormOptions = {
+    title: string;
+    text?: string;
+    fields: FormField[];
+    confirm: string;
+    focus?: string;
+    preview?: (values: Record<string, string>) => string;
+    previewLabel?: string;
+    validate?: (values: Record<string, string>) => string | null;
+};
+
+type ConfirmOptions ={ title: string, text: string, confirm: string, danger?: boolean };
 
 export type ActionItem = { id: string, label: string, icon: string, danger?: boolean, disabled?: boolean };
 
@@ -74,6 +87,57 @@ export class Dialogs {
                 const msg = o.validate?.(input.value);
                 if (msg) { error.textContent = msg; input.focus(); return; }
                 close(input.value);
+            });
+        });
+    }
+
+    /**
+     * Dialog mit mehreren Eingabefeldern. preview() liefert eine Zeile, die sich beim Tippen
+     * aktualisiert (z. B. der entstehende Dateiname). Ergebnis: Werte nach Feld-id oder null.
+     */
+    form(o: FormOptions): Promise<Record<string, string> | null> {
+        return this.open(`
+            <h2 class="hp-sheet-title">${escapeHtml(o.title)}</h2>
+            ${o.text ? `<p class="hp-sheet-text">${escapeHtml(o.text)}</p>` : ""}
+            <form class="hp-form">
+                <div class="hp-form-grid">
+                ${o.fields.map(f => `
+                    <label class="hp-field${f.wide ? " is-wide" : ""}">
+                        <span>${escapeHtml(f.label)}</span>
+                        <input type="text" name="${f.id}" value="${escapeHtml(f.value || "")}" placeholder="${escapeHtml(f.placeholder || "")}"
+                            autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="${f.capitalize ? "words" : "off"}" enterkeyhint="next">
+                    </label>`).join("")}
+                </div>
+                ${o.preview ? `<div class="hp-form-preview"><span class="hp-form-preview-label">${escapeHtml(o.previewLabel || "")}</span><code></code></div>` : ""}
+                <p class="hp-field-error" aria-live="polite"></p>
+                <div class="hp-sheet-buttons">
+                    <button type="button" class="hp-btn" data-cancel>Abbrechen</button>
+                    <button type="submit" class="hp-btn hp-btn-primary">${escapeHtml(o.confirm)}</button>
+                </div>
+            </form>`, (sheet, close) => {
+            const inputs = Array.from(sheet.querySelectorAll<HTMLInputElement>("input"));
+            const error = sheet.querySelector<HTMLElement>(".hp-field-error")!;
+            const previewEl = sheet.querySelector<HTMLElement>(".hp-form-preview code");
+            const form = sheet.querySelector("form")!;
+            const values = () => Object.fromEntries(inputs.map(i => [i.name, i.value]));
+            const update = () => { if (previewEl && o.preview) previewEl.textContent = o.preview(values()); };
+            update();
+            const first = inputs.find(i => i.name == o.focus) || inputs.find(i => !i.value) || inputs[0];
+            setTimeout(() => { first.focus(); first.select(); }, 60);
+            inputs.forEach((input, idx) => {
+                input.addEventListener("input", () => { error.textContent = ""; update(); });
+                // Enter springt ins nächste Feld, im letzten Feld wird gesichert
+                input.addEventListener("keydown", e => {
+                    if (e.key == "Enter" && idx < inputs.length - 1) { e.preventDefault(); inputs[idx + 1].focus(); }
+                });
+            });
+            inputs[inputs.length - 1].setAttribute("enterkeyhint", "done");
+            form.addEventListener("submit", (e) => {
+                e.preventDefault();
+                const v = values();
+                const msg = o.validate?.(v);
+                if (msg) { error.textContent = msg; return; }
+                close(v);
             });
         });
     }
