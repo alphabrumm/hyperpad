@@ -104,3 +104,75 @@ export function dataUrlToBytes(url: string): Uint8Array {
     }
     return new TextEncoder().encode(decodeURIComponent(payload));
 }
+
+// ---------------------------------------------------------------------------
+// Lesen
+// ---------------------------------------------------------------------------
+
+/**
+ * Liest ein ZIP-Archiv. Unterstützt ungepackte („stored“) und komprimierte („deflate“)
+ * Einträge, also auch Archive, die am Mac, unter Windows oder in der Dateien-App neu gepackt wurden.
+ * Größen und Positionen kommen aus dem zentralen Verzeichnis am Ende des Archivs.
+ */
+export async function readZip(buffer: ArrayBuffer): Promise<ZipEntry[]> {
+    const bytes = new Uint8Array(buffer);
+    const view = new DataView(buffer);
+
+    // Ende des zentralen Verzeichnisses suchen (steht am Schluss, evtl. gefolgt von einem Kommentar)
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) {
+        if (view.getUint32(i, true) == 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Die Datei ist kein gültiges ZIP-Archiv.");
+
+    const count = view.getUint16(eocd + 10, true);
+    let p = view.getUint32(eocd + 16, true);
+    const utf8 = new TextDecoder("utf-8");
+    const entries: ZipEntry[] = [];
+
+    for (let n = 0; n < count; n++) {
+        if (view.getUint32(p, true) != 0x02014b50) throw new Error("Das ZIP-Archiv ist beschädigt.");
+        const flags = view.getUint16(p + 8, true);
+        const method = view.getUint16(p + 10, true);
+        const compSize = view.getUint32(p + 20, true);
+        const nameLen = view.getUint16(p + 28, true);
+        const extraLen = view.getUint16(p + 30, true);
+        const commentLen = view.getUint16(p + 32, true);
+        const localOffset = view.getUint32(p + 42, true);
+        const rawName = bytes.subarray(p + 46, p + 46 + nameLen);
+        const path = (flags & 0x0800) ? utf8.decode(rawName) : decodeName(rawName);
+        p += 46 + nameLen + extraLen + commentLen;
+
+        if (flags & 0x0001) throw new Error("Das ZIP-Archiv ist mit einem Passwort geschützt.");
+        if (path.endsWith("/")) continue;
+
+        const lNameLen = view.getUint16(localOffset + 26, true);
+        const lExtraLen = view.getUint16(localOffset + 28, true);
+        const start = localOffset + 30 + lNameLen + lExtraLen;
+        const raw = bytes.subarray(start, start + compSize);
+
+        let data: Uint8Array;
+        if (method == 0) data = raw.slice();
+        else if (method == 8) data = await inflateRaw(raw);
+        else throw new Error(`„${path}“ ist mit einem Verfahren gepackt, das HyperPad nicht kennt.`);
+        entries.push({ path, data });
+    }
+    return entries;
+}
+
+/** Umlaute der alten DOS-Codepage 437/850, mit der der Windows-Explorer Dateinamen ablegt */
+const CP437: Record<number, string> = { 0x81: "ü", 0x84: "ä", 0x94: "ö", 0x8E: "Ä", 0x99: "Ö", 0x9A: "Ü", 0xE1: "ß", 0x82: "é", 0x8A: "è", 0x85: "à" };
+
+/** Ohne UTF-8-Kennzeichen: erst UTF-8 versuchen (macOS), sonst alte DOS-Codepage (Windows) */
+function decodeName(raw: Uint8Array): string {
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(raw); }
+    catch (e) { return Array.from(raw, b => b < 0x80 ? String.fromCharCode(b) : (CP437[b] || "_")).join(""); }
+}
+
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+    if (typeof DecompressionStream == "undefined") {
+        throw new Error("Dieser Browser kann gepackte ZIP-Archive nicht entpacken. Bitte aktualisiere iPadOS bzw. den Browser.");
+    }
+    const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+}

@@ -227,7 +227,7 @@ export class App {
                 <p class="hp-version">Version ${typeof APP_VERSION != "undefined" ? APP_VERSION : ""}</p>
             </div>
         </aside>
-        <input type="file" accept=".json,.html,.htm,application/json,text/html,text/plain" data-ref="fileInput" hidden>
+        <input type="file" accept=".json,.zip,.html,.htm,application/json,application/zip,application/x-zip-compressed,text/html,text/plain" data-ref="fileInput" hidden>
         <input type="file" accept="image/*,.html,.htm,.css,.js,.txt" multiple data-ref="addFileInput" hidden>
         `);
 
@@ -996,14 +996,29 @@ export class App {
 
     async importProject(file: File) {
         try {
-            const text = await file.text();
-            const { name, files } = ProjectStore.parseImport(text, file.name.replace(/\.hyperpad\.json$/i, ".json"));
+            const buffer = await file.arrayBuffer();
+            const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
+            const isZip = /\.zip$/i.test(file.name) || (head[0] == 0x50 && head[1] == 0x4B && head[2] == 3 && head[3] == 4);
+            let name: string, files: ProjectFile[], skipped: string[] = [];
+            if (isZip) {
+                const { readZip } = await import("./Zip.js");
+                ({ name, files, skipped } = ProjectStore.parseZip(await readZip(buffer), file.name));
+            } else {
+                const text = new TextDecoder("utf-8").decode(buffer);
+                ({ name, files } = ProjectStore.parseImport(text, file.name.replace(/\.hyperpad\.json$/i, ".json")));
+            }
             const p = this.store.createInfo(name);
             await this.store.writeFiles(p.id, files);
             const now = Date.now();
             this.store.update(p.id, { exported: now, modified: now });
             await this.switchToProject(p.id);
             this.toast(`„${p.name}“ geöffnet.`, "check");
+            if (skipped.length > 0) {
+                this.dialogs.alert({
+                    title: "Nicht alle Dateien übernommen",
+                    text: `HyperPad kann nur HTML-, CSS-, JavaScript- und Textdateien sowie Bilder bearbeiten. Nicht übernommen: ${skipped.join(", ")}`
+                });
+            }
         } catch (e: any) {
             this.dialogs.alert({ title: "Datei lässt sich nicht öffnen", text: e?.message || String(e) });
         }

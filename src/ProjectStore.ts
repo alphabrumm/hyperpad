@@ -7,7 +7,18 @@
  * - Exportiert wird eine JSON-Datei { hyperpad: 1, name, files: [{ name, text }] }.
  */
 
-import { kindOf } from "./util.js";
+import { kindOf, extOf } from "./util.js";
+import type { ZipEntry } from "./Zip.js";
+
+const IMAGE_TYPES: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", svg: "image/svg+xml", webp: "image/webp"
+};
+
+function bytesToDataUrl(data: Uint8Array, mime: string): string {
+    let bin = "";
+    for (let i = 0; i < data.length; i += 0x8000) bin += String.fromCharCode(...data.subarray(i, i + 0x8000));
+    return `data:${mime};base64,${btoa(bin)}`;
+}
 
 export type ProjectInfo = {
     id: string;
@@ -165,6 +176,46 @@ export class ProjectStore {
     }
 
     /**
+     * Liest ein ZIP-Archiv, wie es „Projekt als zip sichern“ erzeugt:
+     * KLASSE_NACHNAME_VORNAME_PROJEKTNAME_DATUM_UHRZEIT.zip mit einem Ordner und darin den Dateien.
+     * Liegen die Dateien ohne Ordner im Archiv, geht das auch. Der Ordnername wird zum Projektnamen.
+     */
+    static parseZip(entries: ZipEntry[], filename: string): { name: string, files: ProjectFile[], skipped: string[] } {
+        // Systemdateien von macOS und Windows ignorieren
+        const useful = entries.filter(e => {
+            const segs = e.path.split("/");
+            return !segs.some(s => s.startsWith(".") || s == "__MACOSX") && !/^(thumbs\.db|desktop\.ini)$/i.test(segs[segs.length - 1]);
+        });
+        if (useful.length == 0) throw new Error(`„${filename}“ enthält keine Dateien.`);
+
+        // Gemeinsamen obersten Ordner abtrennen
+        const firsts = new Set(useful.map(e => e.path.includes("/") ? e.path.split("/")[0] : ""));
+        const folder = firsts.size == 1 && !firsts.has("") ? [...firsts][0] : "";
+        const strip = (path: string) => folder ? path.substring(folder.length + 1) : path;
+
+        const dec = new TextDecoder("utf-8");
+        const files: ProjectFile[] = [];
+        const skipped: string[] = [];
+        for (const e of useful) {
+            const name = strip(e.path);
+            const kind = kindOf(name);
+            if (kind == "image") {
+                files.push({ name, text: bytesToDataUrl(e.data, IMAGE_TYPES[extOf(name)] || "application/octet-stream") });
+            } else if (kind == "html" || kind == "css" || kind == "js" || ["txt", "md", "json", "csv", "xml"].includes(extOf(name))) {
+                files.push({ name, text: dec.decode(e.data).replace(/^\uFEFF/, "") });
+            } else {
+                skipped.push(name);
+            }
+        }
+        if (files.length == 0) throw new Error(`„${filename}“ enthält keine HTML-, CSS-, JavaScript- oder Bilddateien.`);
+        // index.html bzw. die erste HTML-Seite zuerst, damit sie beim Öffnen angezeigt wird
+        files.sort((a, b) => rank(a.name) - rank(b.name));
+
+        const fromFile = filename.replace(/\.zip$/i, "").replace(/_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(-\d{2})?$/, "");
+        return { name: folder || fromFile || "Projekt", files, skipped };
+    }
+
+    /**
      * Liest eine Projektdatei von HyperPad. Einzelne HTML-Dateien werden zu einem Projekt
      * mit dieser einen Seite. Wirft eine Exception mit verständlicher Meldung.
      */
@@ -188,4 +239,10 @@ export class ProjectStore {
         if (files.length == 0) throw new Error(`„${filename}“ enthält keine Dateien.`);
         return { name: typeof data.name == "string" && data.name ? data.name : base, files };
     }
+}
+
+function rank(name: string): number {
+    if (name.toLowerCase() == "index.html") return 0;
+    const k = kindOf(name);
+    return k == "html" ? 1 : k == "css" ? 2 : k == "js" ? 3 : k == "image" ? 4 : 5;
 }
