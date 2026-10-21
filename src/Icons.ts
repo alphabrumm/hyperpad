@@ -8,6 +8,7 @@ const paths: Record<string, string> = {
     stepOver: '<path d="M4 14a8 8 0 0 1 15-4"/><path d="M20 5v5h-5"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/>',
     stepInto: '<path d="M12 3v11"/><path d="M7 9l5 5 5-5"/><circle cx="12" cy="19.5" r="1.6" fill="currentColor"/>',
     stepOut: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><circle cx="12" cy="19.5" r="1.6" fill="currentColor"/>',
+    copyFile: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M11.5 13l-1.5 1.5 1.5 1.5M16.5 13l1.5 1.5-1.5 1.5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
     redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',

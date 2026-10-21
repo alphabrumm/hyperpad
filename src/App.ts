@@ -135,6 +135,7 @@ export class App {
             </button>
             <div class="hp-topbar-spacer"></div>
             <div class="hp-toolgroup hp-edit-tools">
+                <button class="hp-iconbtn" data-ref="copyBtn" aria-label="Code dieser Datei kopieren" title="Code dieser Datei kopieren">${icon("copyFile")}</button>
                 <button class="hp-iconbtn" data-ref="undo" aria-label="Rückgängig" title="Rückgängig">${icon("undo")}</button>
                 <button class="hp-iconbtn" data-ref="redo" aria-label="Wiederholen" title="Wiederholen">${icon("redo")}</button>
                 <button class="hp-iconbtn" data-ref="saveBtn" aria-label="Projekt als Datei sichern" title="Projekt als Datei sichern">${icon("save")}<span class="hp-dot"></span></button>
@@ -238,6 +239,7 @@ export class App {
         this.el.drawerClose.addEventListener("click", () => this.closeDrawer());
         this.el.drawerBackdrop.addEventListener("click", () => this.closeDrawer());
         this.el.projectBtn.addEventListener("click", () => this.renameProject());
+        this.el.copyBtn.addEventListener("click", () => this.copyCode());
         this.el.undo.addEventListener("click", () => this.editor.undo());
         this.el.redo.addEventListener("click", () => this.editor.redo());
         this.el.saveBtn.addEventListener("click", () => this.exportProject());
@@ -1110,7 +1112,16 @@ export class App {
     }
 
     private toastTimer: any;
-    toast(text: string, iconName: string = "info") {
+    /** Kopiert den Code der geöffneten Datei in die Zwischenablage (wie in JPad). */
+    async copyCode() {
+        if (kindOf(this.active) == "image") { this.toast("Bilder lassen sich nicht als Code kopieren."); return; }
+        const text = this.editor.getText().replace(/\s+$/, "") + "\n";
+        const ok = await copyToClipboard(text);
+        if (!ok) this.toast("Kopieren hat nicht geklappt. Markiere den Code im Editor und kopiere ihn von Hand.", "info", 5000);
+        else this.toast(`Code der Datei „${this.active}“ in die Zwischenablage kopiert. Füge den Code woanders wieder ein (z.B. bei einer Abgabe in einem Lernkurs).`, "copyFile", 5000);
+    }
+
+    toast(text: string, iconName: string = "info", duration: number = 3600) {
         let t = this.root.querySelector<HTMLElement>(".hp-toast");
         if (!t) {
             t = document.createElement("div");
@@ -1121,6 +1132,27 @@ export class App {
         t.innerHTML = icon(iconName) + `<span>${escapeHtml(text)}</span>`;
         t.classList.add("is-visible");
         clearTimeout(this.toastTimer);
-        this.toastTimer = setTimeout(() => t!.classList.remove("is-visible"), 3600);
+        this.toastTimer = setTimeout(() => t!.classList.remove("is-visible"), duration);
     }
+}
+
+/** Zwischenablage mit Rückfall für ältere Browser (wie in JPad). */
+async function copyToClipboard(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (e) { /* weiter mit dem Rückfall */ }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.fontSize = "16px";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { }
+    ta.remove();
+    return ok;
 }
